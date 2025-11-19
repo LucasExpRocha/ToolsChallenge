@@ -49,8 +49,9 @@ public class PaymentRequestValidator {
     }
 
     // Valida número de parcelas como inteiro positivo
+    int parcela;
     try {
-      int parcela = Integer.parseInt(request.getFormaPagamento().getParcelas());
+      parcela = Integer.parseInt(request.getFormaPagamento().getParcelas());
       if (parcela <= 0) return "Parcelas inválidas";
     } catch (NumberFormatException e) {
       return "Parcelas inválidas";
@@ -59,6 +60,11 @@ public class PaymentRequestValidator {
     // Valida tipo de pagamento contra conjunto permitido
     String tipo = request.getFormaPagamento().getTipo();
     if (tipo == null || !ALLOWED_TYPES.contains(tipo.toUpperCase(Locale.ROOT))) return "Tipo de pagamento inválido";
+
+    // Regra: quando tipo=AVISTA, número de parcelas deve ser exatamente 1
+    if ("AVISTA".equals(tipo.toUpperCase(Locale.ROOT)) && parcela != 1) {
+      return "Pagamento à vista deve ter exatamente 1 parcela";
+    }
 
     return "";
   }

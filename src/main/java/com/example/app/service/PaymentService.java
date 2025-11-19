@@ -3,9 +3,6 @@ package com.example.app.service;
 import com.example.app.dto.payment.*;
 import com.example.app.entity.Payment;
 import com.example.app.repository.PaymentRepository;
-import com.example.app.service.lookup.LookupResult;
-import com.example.app.service.model.ValidatedData;
-import com.example.app.service.validation.ValidationResult;
 import com.example.app.util.Utf8Sanitizer;
 import com.example.app.validator.PaymentRequestValidator;
 import com.example.app.exception.PaymentProcessingException;
@@ -63,17 +60,24 @@ public class PaymentService {
   public PaymentResponse process(PaymentRequest request) {
     PaymentResponse response = initializeResponse(request);
     try {
-      ValidationResult resultadoValidacao = validar(request);
-      if (!resultadoValidacao.isOk()) {
-        throw new PaymentValidationException("PAYMENT_VALIDATION_ERROR", resultadoValidacao.getErro());
+      String erro = new PaymentRequestValidator(request).validate();
+      if (!erro.isEmpty()) {
+        throw new PaymentValidationException("PAYMENT_VALIDATION_ERROR", erro);
       }
 
-      LookupResult resultadoBusca = buscarPorExternalId(resultadoValidacao.getDados().getId());
-      if (resultadoBusca.isFound()) {
-        throw new DuplicatePaymentException("PAYMENT_DUPLICATE", "Transação já processada para identificador=" + resultadoValidacao.getDados().getId());
+      String identificador = request.getId();
+      boolean existe = repository.findByExternalId(identificador).isPresent();
+      if (existe) {
+        throw new DuplicatePaymentException("PAYMENT_DUPLICATE", "Transação já processada para identificador=" + identificador);
       }
 
-      Payment payment = criarTransacao(resultadoValidacao.getDados());
+      BigDecimal valor = new BigDecimal(request.getDescricao().getValor());
+      LocalDateTime dataHora = LocalDateTime.parse(request.getDescricao().getDataHora(), formatter);
+      String tipo = request.getFormaPagamento().getTipo().toUpperCase(Locale.ROOT);
+      Integer parcelas = Integer.valueOf(request.getFormaPagamento().getParcelas());
+      String estabelecimento = Utf8Sanitizer.sanitize(request.getDescricao().getEstabelecimento());
+
+      Payment payment = criarTransacao(identificador, request.getCartao(), valor, dataHora, tipo, parcelas, estabelecimento);
 
       preencherRespostaAutorizada(response, payment.getNsu(), payment.getCodigoAutorizacao());
       log.info("Pagamento autorizado identificador={} nsu={} codigo={}", payment.getExternalId(),
@@ -139,48 +143,29 @@ public class PaymentService {
   /**
    * Valida o request e retorna dados normalizados ou o motivo do erro.
    */
-  private ValidationResult validar(PaymentRequest request) {
-    PaymentRequestValidator validator = new PaymentRequestValidator(request);
-    String erro = validator.validate();
-    if (!erro.isEmpty()) {
-      return ValidationResult.erro(erro);
-    }
-    String identificador = request.getId();
-    String cartao = request.getCartao();
-    BigDecimal valor = new BigDecimal(request.getDescricao().getValor());
-    LocalDateTime dataHora = LocalDateTime.parse(request.getDescricao().getDataHora(), formatter);
-    String tipo = request.getFormaPagamento().getTipo().toUpperCase(Locale.ROOT);
-    Integer parcelas = Integer.valueOf(request.getFormaPagamento().getParcelas());
-    String estabelecimento = Utf8Sanitizer.sanitize(request.getDescricao().getEstabelecimento());
-    ValidatedData dados = new ValidatedData(identificador, cartao, valor, dataHora, tipo, parcelas, estabelecimento);
-    return ValidationResult.ok(dados);
-  }
+  
 
   /**
    * Verifica se já existe pagamento para o `externalId` informado.
    */
-  private LookupResult buscarPorExternalId(String externalId) {
-    return repository.findByExternalId(externalId)
-        .map(p -> LookupResult.found())
-        .orElseGet(LookupResult::notFound);
-  }
+  
 
   /**
    * Cria e persiste a transação autorizada.
    * Em caso de falha, lança {@link PaymentCreationException}.
    */
-  private Payment criarTransacao(ValidatedData dados) {
+  private Payment criarTransacao(String id, String cartao, BigDecimal valor, LocalDateTime dataHora, String tipo, Integer parcelas, String estabelecimento) {
     try {
       String nsu = gerarNsu();
       String codigo = gerarCodigoAutorizacao();
       Payment pagamento = new Payment();
-      pagamento.setExternalId(dados.getId());
-      pagamento.setCartao(dados.getTransacao());
-      pagamento.setTipo(dados.getTipo());
-      pagamento.setParcelas(dados.getParcelas());
-      pagamento.setValor(dados.getValor());
-      pagamento.setDataHora(dados.getDataHora());
-      pagamento.setEstabelecimento(dados.getEstabelecimento());
+      pagamento.setExternalId(id);
+      pagamento.setCartao(cartao);
+      pagamento.setTipo(tipo);
+      pagamento.setParcelas(parcelas);
+      pagamento.setValor(valor);
+      pagamento.setDataHora(dataHora);
+      pagamento.setEstabelecimento(estabelecimento);
       pagamento.setNsu(nsu);
       pagamento.setCodigoAutorizacao(codigo);
       pagamento.setStatus("AUTORIZADO");

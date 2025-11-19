@@ -41,4 +41,13 @@ class PaymentControllerAdditionalTest {
       .andExpect(jsonPath("$.cartao").value("4444*********1234"))
       .andExpect(jsonPath("$.descricao.status").value("AUTORIZADO"));
   }
+
+  @Test
+  void avistaComParcelasDiferenteDeUmNegado() throws Exception {
+    String body = "{\"transacao\":{\"cartao\":\"4444123412341234\",\"id\":\"100023568900043\",\"descricao\":{\"valor\":\"50.00\",\"dataHora\":\"01/05/2021 18:30:00\",\"estabelecimento\":\"PetShop Mundo cão\"},\"formaPagamento\":{\"tipo\":\"AVISTA\",\"parcelas\":\"2\"}}}";
+    mockMvc.perform(post("/pagamentos").contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON)).content(body))
+      .andExpect(status().is(402))
+      .andExpect(jsonPath("$.descricao.status").value("NEGADO"))
+      .andExpect(jsonPath("$.descricao.mensagem").value("Pagamento à vista deve ter exatamente 1 parcela"));
+  }
 }
